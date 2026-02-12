@@ -42,7 +42,7 @@ if __name__ == '__main__':
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     # using SD-2.1
-    dift = SDFeaturizer('stabilityai/stable-diffusion-2-1')
+    dift = SDFeaturizer('Manojb/stable-diffusion-2-1-base')
 
     all_category = [
         'art_work',

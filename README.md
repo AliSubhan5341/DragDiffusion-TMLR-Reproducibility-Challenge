@@ -1,144 +1,321 @@
-<p align="center">
-  <h1 align="center">DragDiffusion: Harnessing Diffusion Models for Interactive Point-based Image Editing</h1>
-  <p align="center">
-    <a href="https://yujun-shi.github.io/"><strong>Yujun Shi</strong></a>
-    &nbsp;&nbsp;
-    <strong>Chuhui Xue</strong>
-    &nbsp;&nbsp;
-    <strong>Jun Hao Liew</strong>
-    &nbsp;&nbsp;
-    <strong>Jiachun Pan</strong>
-    &nbsp;&nbsp;
-    <br>
-    <strong>Hanshu Yan</strong>
-    &nbsp;&nbsp;
-    <strong>Wenqing Zhang</strong>
-    &nbsp;&nbsp;
-    <a href="https://vyftan.github.io/"><strong>Vincent Y. F. Tan</strong></a>
-    &nbsp;&nbsp;
-    <a href="https://songbai.site/"><strong>Song Bai</strong></a>
-  </p>
-  <br>
-  <div align="center">
-    <img src="./release-doc/asset/counterfeit-1.png", width="700">
-    <img src="./release-doc/asset/counterfeit-2.png", width="700">
-    <img src="./release-doc/asset/majix_realistic.png", width="700">
-  </div>
-  <div align="center">
-    <img src="./release-doc/asset/github_video.gif", width="700">
-  </div>
-  <p align="center">
-    <a href="https://arxiv.org/abs/2306.14435"><img alt='arXiv' src="https://img.shields.io/badge/arXiv-2306.14435-b31b1b.svg"></a>
-    <a href="https://yujun-shi.github.io/projects/dragdiffusion.html"><img alt='page' src="https://img.shields.io/badge/Project-Website-orange"></a>
-    <a href="https://twitter.com/YujunPeiyangShi"><img alt='Twitter' src="https://img.shields.io/twitter/follow/YujunPeiyangShi?label=%40YujunPeiyangShi"></a>
-  </p>
-  <br>
-</p>
+### DragDiffusion Reproducibility (TMLR Reproducibility Challenge)
 
-## Disclaimer
-This is a research project, NOT a commercial product. Users are granted the freedom to create images using this tool, but they are expected to comply with local laws and utilize it in a responsible manner. The developers do not assume any responsibility for potential misuse by users.
+**Authors (Reproducibility Study)**  
+- [Ali Subhan](https://www.linkedin.com/in/ali5341/), University of Ljubljana  
+- [Ashir Raza](https://www.linkedin.com/in/ashir-raza7890/), University of Ljubljana  
 
-## News and Update
-* [Jan 29th] Update to support diffusers==0.24.0!
-* [Oct 23rd] Code and data of DragBench are released! Please check README under "drag_bench_evaluation" for details.
-* [Oct 16th] Integrate [FreeU](https://chenyangsi.top/FreeU/) when dragging generated image.
-* [Oct 3rd] Speeding up LoRA training when editing real images. (**Now only around 20s on A100!**)
-* [Sept 3rd] v0.1.0 Release.
-  * Enable **Dragging Diffusion-Generated Images.**
-  * Introducing a new guidance mechanism that **greatly improve quality of dragging results.** (Inspired by [MasaCtrl](https://ljzycmd.github.io/projects/MasaCtrl/))
-  * Enable Dragging Images with arbitrary aspect ratio
-  * Adding support for DPM++Solver (Generated Images)
-* [July 18th] v0.0.1 Release.
-  * Integrate LoRA training into the User Interface. **No need to use training script and everything can be conveniently done in UI!**
-  * Optimize User Interface layout.
-  * Enable using better VAE for eyes and faces (See [this](https://stable-diffusion-art.com/how-to-use-vae/))
-* [July 8th] v0.0.0 Release.
-  * Implement Basic function of DragDiffusion
+This repository contains our reproduction and extension of **DragDiffusion: Harnessing Diffusion Models for Interactive Point-based Image Editing** as part of the **TMLR Reproducibility Challenge**.
 
-## Installation
+We build on the original DragDiffusion codebase and focus on **systematic evaluation on DragBench**, including:
 
-It is recommended to run our code on a Nvidia GPU with a linux system. We have not yet tested on other configurations. Currently, it requires around 14 GB GPU memory to run our method. We will continue to optimize memory efficiency
+- **Timestep ablations** (optimized diffusion timestep \(t\))
+- **LoRA training step ablations**
+- Quantitative metrics:
+  - **Mean Distance (MD)** between desired target points and final handle positions
+  - **Image Fidelity (IF)** defined as \( \text{IF} = 1 - \text{LPIPS} \)
 
-To install the required libraries, simply run the following command:
-```
+---
+
+### 1. Repository Structure
+
+Key directories and files used in our reproducibility experiments:
+
+- `drag_bench_evaluation/`
+  - `drag_bench_data/` – DragBench dataset (10 categories, original images + metadata)
+  - `drag_bench_lora/` – LoRA weights trained per image
+  - `run_lora_training.py` – script to train LoRA on all DragBench images
+  - `run_drag_diffusion.py` – DragDiffusion runner for DragBench
+  - `run_eval_point_matching.py` – computes **Mean Distance (MD)**
+  - `run_eval_image_fidelity.py` – computes **IF = 1 - LPIPS**
+  - `run_timestep_ablation.py` – unified script for **timestep & LoRA ablations**
+  - `eval_*_ablation.sh` – helper scripts for other ablations (UNet block, lambda, etc.)
+- `utils/`
+  - `lora_utils.py` – LoRA training logic (used by `run_lora_training.py`)
+  - other DragDiffusion utilities (drag update, attention control, LoRA key fixing, etc.)
+- `drag_pipeline.py` – DragDiffusion pipeline (built on top of `diffusers`)
+
+---
+
+### 2. Environment and Dependencies
+
+We follow the original DragDiffusion environment as closely as possible.
+
+- **OS**: Linux
+- **GPU**: NVIDIA GPU with ≥ 14 GB VRAM
+- **Python**: 3.9+
+
+Create and activate the Conda environment (from the original repo):
+
+```bash
 conda env create -f environment.yaml
 conda activate dragdiff
 ```
 
-## Run DragDiffusion
-To start with, in command line, run the following to start the gradio user interface:
+Key libraries (non-exhaustive):
+
+- `torch`, `torchvision`
+- `diffusers>=0.24.0`
+- `transformers`
+- `accelerate`
+- `lpips`
+- `einops`
+- `pytorch-lightning`
+
+---
+
+### 3. Data: DragBench
+
+We use the **DragBench** dataset released with DragDiffusion.
+
+Expected layout (inside `drag_bench_evaluation/drag_bench_data/`):
+
+- 10 categories:
+  - `art_work/`, `land_scape/`, `building_city_view/`, `building_countryside_view/`,
+    `animals/`, `human_head/`, `human_upper_body/`, `human_full_body/`,
+    `interior_design/`, `other_objects/`
+- For each sample:
+  - `original_image.png`
+  - `meta_data.pkl` containing:
+    - `prompt` (text prompt)
+    - `mask` (editable region)
+    - `points` (handle/target point pairs)
+
+Place the dataset under:
+
+```text
+drag_bench_evaluation/drag_bench_data/
 ```
-python3 drag_ui.py
+
+following the instructions from the original DragDiffusion `README`.
+
+---
+
+### 4. LoRA Training on DragBench
+
+**Goal:** Train one LoRA per DragBench image so DragDiffusion can specialize to each input.
+
+We use `drag_bench_evaluation/run_lora_training.py`, with:
+
+- **LoRA training steps**: up to **120** steps per image
+- Checkpoints saved every 10 steps:
+  - `10/`, `20/`, …, `120/`, each containing `pytorch_lora_weights.safetensors`
+
+Run:
+
+```bash
+cd drag_bench_evaluation
+python run_lora_training.py
 ```
 
-You may check our [GIF above](https://github.com/Yujun-Shi/DragDiffusion/blob/main/release-doc/asset/github_video.gif) that demonstrate the usage of UI in a step-by-step manner.
+This:
 
-Basically, it consists of the following steps:
+- Iterates over all categories and samples in `drag_bench_data/`
+- Trains LoRA for each sample up to 120 steps with:
+  - `model_path = "runwayml/stable-diffusion-v1-5"`
+  - `lora_step = 120`
+  - `lora_lr = 5e-4`
+  - `lora_batch_size = 4`
+  - `lora_rank = 16`
+  - `save_interval = 10`
 
-### Case 1: Dragging Input Real Images
-#### 1) train a LoRA
-* Drop our input image into the left-most box.
-* Input a prompt describing the image in the "prompt" field
-* Click the "Train LoRA" button to train a LoRA given the input image
+Resulting LoRA structure example:
 
-#### 2) do "drag" editing
-* Draw a mask in the left-most box to specify the editable areas.
-* Click handle and target points in the middle box. Also, you may reset all points by clicking "Undo point".
-* Click the "Run" button to run our algorithm. Edited results will be displayed in the right-most box.
+```text
+drag_bench_lora/animals/JH_2023-09-14-1820-16/
+  10/pytorch_lora_weights.safetensors
+  20/pytorch_lora_weights.safetensors
+  ...
+  120/pytorch_lora_weights.safetensors
+  pytorch_lora_weights.safetensors    # final full LoRA
+```
 
-### Case 2: Dragging Diffusion-Generated Images
-#### 1) generate an image
-* Fill in the generation parameters (e.g., positive/negative prompt, parameters under Generation Config & FreeU Parameters).
-* Click "Generate Image".
+---
 
-#### 2) do "drag" on the generated image
-* Draw a mask in the left-most box to specify the editable areas
-* Click handle points and target points in the middle box.
-* Click the "Run" button to run our algorithm. Edited results will be displayed in the right-most box.
+### 5. DragDiffusion Evaluation on DragBench
 
+#### 5.1. Core metrics
 
-<!---
-## Explanation for parameters in the user interface:
-#### General Parameters
-|Parameter|Explanation|
-|-----|------|
-|prompt|The prompt describing the user input image (This will be used to train the LoRA and conduct "drag" editing).|
-|lora_path|The directory where the trained LoRA will be saved.|
+We rely on two core metrics:
 
+- **Mean Distance (MD)** – implemented in `run_eval_point_matching.py`
+  - Uses DIFT features (`dift_sd.py`) based on SD-2.1
+  - For each handle/target point pair:
+    - Finds the best-matching location in the dragged image
+    - Computes Euclidean distance between this match and the target point
+  - Reports the average distance across all points and samples.
 
-#### Algorithm Parameters
-These parameters are collapsed by default as we normally do not have to tune them. Here are the explanations:
-* Base Model Config
+- **Image Fidelity (IF)** – implemented in `run_eval_image_fidelity.py`
+  - Uses LPIPS (AlexNet backbone)
+  - Computes LPIPS between original and edited image
+  - Defines IF as:
+    \[
+      \text{IF} = 1 - \text{LPIPS}
+    \]
+  - Reports mean IF across all samples.
 
-|Parameter|Explanation|
-|-----|------|
-|Diffusion Model Path|The path to the diffusion models. By default we are using "runwayml/stable-diffusion-v1-5". We will add support for more models in the future.|
-|VAE Choice|The Choice of VAE. Now there are two choices, one is "default", which will use the original VAE. Another choice is "stabilityai/sd-vae-ft-mse", which can improve results on images with human eyes and faces (see [explanation](https://stable-diffusion-art.com/how-to-use-vae/))|
+Our `run_timestep_ablation.py` script wraps both metrics and evaluates them across all categories for each configuration.
 
-* Drag Parameters
+---
 
-|Parameter|Explanation|
-|-----|------|
-|n_pix_step|Maximum number of steps of motion supervision. **Increase this if handle points have not been "dragged" to desired position.**|
-|lam|The regularization coefficient controlling unmasked region stays unchanged. Increase this value if the unmasked region has changed more than what was desired (do not have to tune in most cases).|
-|n_actual_inference_step|Number of DDIM inversion steps performed (do not have to tune in most cases).|
+### 6. Timestep and LoRA Ablation Script
 
-* LoRA Parameters
+We added a unified ablation script:
 
-|Parameter|Explanation|
-|-----|------|
-|LoRA training steps|Number of LoRA training steps (do not have to tune in most cases).|
-|LoRA learning rate|Learning rate of LoRA (do not have to tune in most cases)|
-|LoRA rank|Rank of the LoRA (do not have to tune in most cases).|
+- **File**: `drag_bench_evaluation/run_timestep_ablation.py`
+- **Purpose**:
+  - Run DragDiffusion on the full DragBench set
+  - Vary:
+    - Optimized timestep \(t\) (via `inv_strength`)
+    - LoRA training steps (including **no LoRA**)
+  - Evaluate **MD** and **IF** for each configuration
+  - Print a concise summary table
 
---->
+#### 6.1. Interface
 
-## License
-Code related to the DragDiffusion algorithm is under Apache 2.0 license.
+```bash
+cd drag_bench_evaluation
 
+# Example: LoRA steps ablation at t = 35
+python run_timestep_ablation.py \
+  --run --eval \
+  --timesteps 35 \
+  --lora_steps 0 20 40 80 100 120
+```
 
-## BibTeX
-If you find our repo helpful, please consider leaving a star or cite our paper :)
+Arguments:
+
+- `--timesteps`:
+  - Timestep \(t\) values in DDIM space (for **DDIM steps = 50**).
+  - Internally mapped via:
+    \[
+      t = \text{round}(\text{inv\_strength} \times 50)
+    \]
+  - Implemented mapping:
+    - 10 → inv_strength=0.2  
+    - 20 → 0.4  
+    - 30 → 0.6  
+    - 35 → 0.7  
+    - 40 → 0.8  
+    - 50 → 1.0
+
+- `--lora_steps`:
+  - LoRA training steps to evaluate (e.g. `0 20 40 80 100 120`).
+  - `0` means **no LoRA** (we skip LoRA loading in `run_drag`).
+
+- `--run`:
+  - Runs DragDiffusion and writes results to:
+    ```text
+    drag_diffusion_res_{lora_steps}_{inv_strength}_0.01_3/
+    ```
+
+- `--eval`:
+  - Runs:
+    - `evaluate_md` (MD)
+    - `evaluate_if` (IF)
+  - Prints per-setting metrics and a summary table.
+
+#### 6.2. Example experiments
+
+- **Timestep ablation** (LoRA steps fixed at 80):
+
+  ```bash
+  python run_timestep_ablation.py \
+    --run --eval \
+    --timesteps 20 35 50 \
+    --lora_steps 80
+  ```
+
+- **LoRA steps ablation** (t fixed at 35, inv_strength=0.7):
+
+  ```bash
+  python run_timestep_ablation.py \
+    --run --eval \
+    --timesteps 35 \
+    --lora_steps 0 20 40 80 100 120
+  ```
+
+Each run prints a summary table of the form:
+
+```text
+============================================================
+SUMMARY: Ablation Results
+============================================================
+     t |   LoRA Steps |         MD | IF (1-LPIPS)
+--------------------------------------------------
+    35 |            0 |     ...    |      ...
+    35 |           20 |     ...    |      ...
+    35 |           40 |     ...    |      ...
+    35 |           80 |     ...    |      ...
+    35 |          100 |     ...    |      ...
+    35 |          120 |     ...    |      ...
+============================================================
+```
+
+---
+
+### 7. Other Ablations (from original repo)
+
+The repo also includes the original ablation scripts:
+
+- **Lambda (regularization) ablation**:
+  - `eval_lambda_ablation.sh`
+  - Result dirs like:
+    - `drag_diffusion_res_80_0.7_0.01_3_lam0.0`
+    - `drag_diffusion_res_80_0.7_0.01_3_lam0.1`
+    - `drag_diffusion_res_80_0.7_0.01_3_lam0.5`
+    - `drag_diffusion_res_80_0.7_0.01_3_lam1.0`
+
+- **UNet block ablation**:
+  - `run_unet_block_ablation.sh`
+  - Result dirs like:
+    - `drag_diffusion_res_80_0.7_0.01_1_lam0.1`
+    - `drag_diffusion_res_80_0.7_0.01_2_lam0.1`
+    - `drag_diffusion_res_80_0.7_0.01_3_lam0.1`
+    - `drag_diffusion_res_80_0.7_0.01_4_lam0.1`
+
+These help isolate the effect of regularization strength \(\lambda\) and the UNet supervision layer.
+
+---
+
+### 8. How to Reproduce Our Reported Results
+
+1. **Set up environment** as in Section 2.
+2. **Download DragBench** and place it under `drag_bench_evaluation/drag_bench_data/`.
+3. **Train LoRA for all images**:
+
+   ```bash
+   cd drag_bench_evaluation
+   python run_lora_training.py
+   ```
+
+4. **Run desired ablations**, for example:
+
+   - LoRA steps ablation (t = 35):
+
+     ```bash
+     python run_timestep_ablation.py \
+       --run --eval \
+       --timesteps 35 \
+       --lora_steps 0 20 40 80 100 120
+     ```
+
+   - Timestep ablation (LoRA steps = 80):
+
+     ```bash
+     python run_timestep_ablation.py \
+       --run --eval \
+       --timesteps 20 35 50 \
+       --lora_steps 80
+     ```
+
+5. **Collect metrics** from the printed summary tables (MD and IF).
+
+---
+
+### 9. Citation
+
+If you use this code or our analysis, please cite the original DragDiffusion paper and the TMLR reproducibility paper (once available):
+
 ```bibtex
 @article{shi2023dragdiffusion,
   title={DragDiffusion: Harnessing Diffusion Models for Interactive Point-based Image Editing},
@@ -147,22 +324,4 @@ If you find our repo helpful, please consider leaving a star or cite our paper :
   year={2023}
 }
 ```
-
-## Contact
-For any questions on this project, please contact [Yujun](https://yujun-shi.github.io/) (shi.yujun@u.nus.edu)
-
-## Acknowledgement
-This work is inspired by the amazing [DragGAN](https://vcai.mpi-inf.mpg.de/projects/DragGAN/). The lora training code is modified from an [example](https://github.com/huggingface/diffusers/blob/v0.17.1/examples/dreambooth/train_dreambooth_lora.py) of diffusers. Image samples are collected from [unsplash](https://unsplash.com/), [pexels](https://www.pexels.com/zh-cn/), [pixabay](https://pixabay.com/). Finally, a huge shout-out to all the amazing open source diffusion models and libraries.
-
-## Related Links
-* [Drag Your GAN: Interactive Point-based Manipulation on the Generative Image Manifold](https://vcai.mpi-inf.mpg.de/projects/DragGAN/)
-* [MasaCtrl: Tuning-free Mutual Self-Attention Control for Consistent Image Synthesis and Editing](https://ljzycmd.github.io/projects/MasaCtrl/)
-* [Emergent Correspondence from Image Diffusion](https://diffusionfeatures.github.io/)
-* [DragonDiffusion: Enabling Drag-style Manipulation on Diffusion Models](https://mc-e.github.io/project/DragonDiffusion/)
-* [FreeDrag: Point Tracking is Not You Need for Interactive Point-based Image Editing](https://lin-chen.site/projects/freedrag/)
-
-
-## Common Issues and Solutions
-1) For users struggling in loading models from huggingface due to internet constraint, please 1) follow this [links](https://zhuanlan.zhihu.com/p/475260268) and download the model into the directory "local\_pretrained\_models"; 2) Run "drag\_ui.py" and select the directory to your pretrained model in "Algorithm Parameters -> Base Model Config -> Diffusion Model Path".
-
 

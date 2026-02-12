@@ -160,6 +160,119 @@ def drag_diffusion_update(model,
 
     return init_code
 
+def drag_diffusion_update_multi_timestep(model,
+                          init_code,
+                          text_embeddings,
+                          t_set,
+                          handle_points,
+                          target_points,
+                          mask,
+                          args):
+    """
+    Multi-timestep variant: optimize latents at multiple timesteps simultaneously.
+    
+    Args:
+        t_set: list of timesteps to optimize at (e.g., [30, 35, 40])
+        Other args same as drag_diffusion_update
+    """
+    assert len(handle_points) == len(target_points), \
+        "number of handle point must equals target points"
+    if text_embeddings is None:
+        text_embeddings = model.get_text_embeddings(args.prompt)
+
+    # Get initial features and x_prev for all timesteps
+    F0_dict = {}
+    x_prev_0_dict = {}
+    with torch.no_grad():
+        for t in t_set:
+            unet_output, F0 = model.forward_unet_features(init_code, t,
+                encoder_hidden_states=text_embeddings,
+                layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
+            x_prev_0,_ = model.step(unet_output, t, init_code)
+            F0_dict[t] = F0
+            x_prev_0_dict[t] = x_prev_0
+
+    # Use the middle timestep for point tracking (use t=35 if available, else middle of t_set)
+    tracking_t = t_set[len(t_set)//2] if len(t_set) > 0 else t_set[0]
+    F0_tracking = F0_dict[tracking_t]
+
+    # prepare optimizable init_code and optimizer
+    init_code.requires_grad_(True)
+    optimizer = torch.optim.Adam([init_code], lr=args.lr)
+
+    # prepare for point tracking and background regularization
+    handle_points_init = copy.deepcopy(handle_points)
+    interp_mask = F.interpolate(mask, (init_code.shape[2],init_code.shape[3]), mode='nearest')
+    using_mask = interp_mask.sum() != 0.0
+
+    # prepare amp scaler for mixed-precision training
+    scaler = torch.cuda.amp.GradScaler()
+    for step_idx in range(args.n_pix_step):
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            # Get features and x_prev for all timesteps
+            F1_dict = {}
+            x_prev_updated_dict = {}
+            for t in t_set:
+                unet_output, F1 = model.forward_unet_features(init_code, t,
+                    encoder_hidden_states=text_embeddings,
+                    layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
+                x_prev_updated,_ = model.step(unet_output, t, init_code)
+                F1_dict[t] = F1
+                x_prev_updated_dict[t] = x_prev_updated
+
+            # Use tracking timestep for point tracking
+            F1_tracking = F1_dict[tracking_t]
+
+            # do point tracking to update handle points before computing motion supervision loss
+            if step_idx != 0:
+                handle_points = point_tracking(F0_tracking, F1_tracking, handle_points, handle_points_init, args)
+                print('new handle points', handle_points)
+
+            # break if all handle points have reached the targets
+            if check_handle_reach_target(handle_points, target_points):
+                break
+
+            # Compute loss across all timesteps
+            loss = 0.0
+            
+            # Motion supervision loss: average across all timesteps
+            for t in t_set:
+                F0 = F0_dict[t]
+                F1 = F1_dict[t]
+                _, _, max_r, max_c = F0.shape
+                
+                for i in range(len(handle_points)):
+                    pi, ti = handle_points[i], target_points[i]
+                    # skip if the distance between target and source is less than 1
+                    if (ti - pi).norm() < 2.:
+                        continue
+
+                    di = (ti - pi) / (ti - pi).norm()
+
+                    # motion supervision
+                    # with boundary protection
+                    r1, r2 = max(0,int(pi[0])-args.r_m), min(max_r,int(pi[0])+args.r_m+1)
+                    c1, c2 = max(0,int(pi[1])-args.r_m), min(max_c,int(pi[1])+args.r_m+1)
+                    f0_patch = F1[:,:,r1:r2, c1:c2].detach()
+                    f1_patch = interpolate_feature_patch(F1,r1+di[0],r2+di[0],c1+di[1],c2+di[1])
+                    loss += ((2*args.r_m+1)**2)*F.l1_loss(f0_patch, f1_patch) / len(t_set)
+
+            # Masked region regularization: average across all timesteps
+            if using_mask:
+                mask_loss = 0.0
+                for t in t_set:
+                    mask_loss += args.lam * ((x_prev_updated_dict[t]-x_prev_0_dict[t])*(1.0-interp_mask)).abs().sum()
+                loss += mask_loss / len(t_set)
+            
+            print('loss total=%f (multi-timestep, %d timesteps)'%(loss.item(), len(t_set)))
+
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        optimizer.zero_grad()
+
+    return init_code
+
 def drag_diffusion_update_gen(model,
                               init_code,
                               text_embeddings,

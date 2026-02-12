@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# Large / local assets
+local_pretrained_models/
+lora_tmp/
+results/
+
+# DragBench data and LoRA weights
+drag_bench_evaluation/drag_bench_data/
+drag_bench_evaluation/drag_bench_lora/
+
+# Generated evaluation outputs
+drag_bench_evaluation/drag_diffusion_res_*/
+drag_bench_evaluation/multi_timestep_baseline/
+drag_bench_evaluation/multi_timestep_multi/
+
+# Installers
+Miniconda3-latest-Linux-x86_64.sh

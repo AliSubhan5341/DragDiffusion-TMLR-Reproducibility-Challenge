@@ -42,6 +42,7 @@ from drag_pipeline import DragPipeline
 
 from utils.drag_utils import drag_diffusion_update
 from utils.attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl
+from utils.fix_lora import fix_lora_keys
 
 
 def preprocess_image(image,
@@ -120,7 +121,10 @@ def run_drag(source_image,
         model.unet.set_default_attn_processor()
     else:
         print("applying lora: " + lora_path)
-        model.unet.load_attn_procs(lora_path)
+        fixed_lora_file = os.path.join(lora_path, "pytorch_lora_weights_fixed.safetensors")
+        if not os.path.exists(fixed_lora_file):
+            fix_lora_keys(lora_path)
+        model.load_lora_weights(lora_path, weight_name="pytorch_lora_weights_fixed.safetensors")
 
     # invert the source image
     # the latent code resolution is too small, only 64*64
@@ -204,10 +208,12 @@ def run_drag(source_image,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="setting arguments")
-    parser.add_argument('--lora_steps', type=int, help='number of lora fine-tuning steps')
-    parser.add_argument('--inv_strength', type=float, help='inversion strength')
+    parser.add_argument('--lora_steps', type=int, default=80, help='number of lora fine-tuning steps')
+    parser.add_argument('--inv_strength', type=float, default=0.7, help='inversion strength')
     parser.add_argument('--latent_lr', type=float, default=0.01, help='latent learning rate')
     parser.add_argument('--unet_feature_idx', type=int, default=3, help='feature idx of unet features')
+    parser.add_argument('--lambda_reg', type=float, default=0.1, help='mask regularization weight (lambda)')
+    parser.add_argument('--no_lora', action='store_true', help='run without lora')
     args = parser.parse_args()
 
     all_category = [
@@ -226,11 +232,19 @@ if __name__ == '__main__':
     # assume root_dir and lora_dir are valid directory
     root_dir = 'drag_bench_data'
     lora_dir = 'drag_bench_lora'
-    result_dir = 'drag_diffusion_res' + \
-        '_' + str(args.lora_steps) + \
-        '_' + str(args.inv_strength) + \
-        '_' + str(args.latent_lr) + \
-        '_' + str(args.unet_feature_idx)
+    if args.no_lora:
+        result_dir = 'drag_diffusion_res_no_lora' + \
+            '_' + str(args.inv_strength) + \
+            '_' + str(args.latent_lr) + \
+            '_' + str(args.unet_feature_idx) + \
+            '_lam' + str(args.lambda_reg)
+    else:
+        result_dir = 'drag_diffusion_res' + \
+            '_' + str(args.lora_steps) + \
+            '_' + str(args.inv_strength) + \
+            '_' + str(args.latent_lr) + \
+            '_' + str(args.unet_feature_idx) + \
+            '_lam' + str(args.lambda_reg)
 
     # mkdir if necessary
     if not os.path.isdir(result_dir):
@@ -257,8 +271,12 @@ if __name__ == '__main__':
             points = meta_data['points']
 
             # load lora
-            lora_path = os.path.join(lora_dir, cat, sample_name, str(args.lora_steps))
-            print("applying lora: " + lora_path)
+            if args.no_lora:
+                lora_path = ""
+                print("running without lora")
+            else:
+                lora_path = os.path.join(lora_dir, cat, sample_name, str(args.lora_steps))
+                print("applying lora: " + lora_path)
 
             out_image = run_drag(
                 source_image,
@@ -266,10 +284,10 @@ if __name__ == '__main__':
                 prompt,
                 points,
                 inversion_strength=args.inv_strength,
-                lam=0.1,
+                lam=args.lambda_reg,
                 latent_lr=args.latent_lr,
                 unet_feature_idx=args.unet_feature_idx,
-                n_pix_step=80,
+                n_pix_step=120,
                 model_path="runwayml/stable-diffusion-v1-5",
                 vae_path="default",
                 lora_path=lora_path,

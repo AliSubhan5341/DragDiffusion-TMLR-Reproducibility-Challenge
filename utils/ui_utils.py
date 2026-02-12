@@ -38,6 +38,7 @@ from drag_pipeline import DragPipeline
 from torchvision.utils import save_image
 from pytorch_lightning import seed_everything
 
+from .fix_lora import fix_lora_keys
 from .drag_utils import drag_diffusion_update, drag_diffusion_update_gen
 from .lora_utils import train_lora
 from .attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl
@@ -161,7 +162,9 @@ def train_lora_interface(original_image,
         lora_batch_size,
         lora_rank,
         progress)
+    fix_lora_keys(lora_path)
     return "Training LoRA Done!"
+
 
 def preprocess_image(image,
                      device,
@@ -260,7 +263,7 @@ def run_drag(source_image,
         model.unet.set_default_attn_processor()
     else:
         print("applying lora: " + lora_path)
-        model.unet.load_attn_procs(lora_path)
+        model.load_lora_weights(lora_path, weight_name="pytorch_lora_weights_fixed.safetensors")
 
     # obtain text embeddings
     text_embeddings = model.get_text_embeddings(prompt)
